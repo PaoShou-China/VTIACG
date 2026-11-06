@@ -3,23 +3,23 @@ from skopt.space import Real, Integer
 from skopt.utils import use_named_args
 import numpy as np
 from simulation import our_guidance_data, parameter_list
-from contextlib import contextmanager
 import os
 import sys
-from multiprocessing import Process, Queue, Value
+from multiprocessing import Pool
 from tqdm import tqdm
-import time
+
 flag = 0
-# 用于临时禁用print输出的上下文管理器
-@contextmanager
-def suppress_stdout():
-    with open(os.devnull, "w") as devnull:
-        old_stdout = sys.stdout
-        sys.stdout = devnull
-        try:
-            yield
-        finally:
-            sys.stdout = old_stdout
+_simulation_pool = None
+
+
+def _silence_worker_stdout():
+    """Redirect worker output once, rather than reopening /dev/null per simulation."""
+    sys.stdout = open(os.devnull, "w")
+
+
+def _run_simulation_job(job):
+    parameter, k1, k2, k3, N = job
+    return run_simulation(parameter, k1, k2, k3, N)
 
 
 # 定义搜索空间
@@ -30,15 +30,15 @@ search_space = [
     Real(1, 6, name='N')
 ]
 
+
 def run_simulation(parameter, k1, k2, k3, N):
     """
     运行模拟并返回结果
     :param parameter: 参数列表
-    :param law: 制导法则编号
-    :return: 包含参数和结果的字典
+    :param k1, k2, k3, N: 控制器参数
+    :return: 当前仿真目标值
     """
-    with suppress_stdout():  # 禁用print输出
-        data = our_guidance_data(parameter, k1, k2, k3, N)
+    data = our_guidance_data(parameter, k1, k2, k3, N)
     miss_distance = (data['x'][-1] ** 2 + data['y'][-1] ** 2) ** 0.5
     e_theta_f = (data['e_theta'][-1] + np.pi) % (2 * np.pi) - np.pi
     e_lambda_f = (data['e_lambda'][-1] + np.pi) % (2 * np.pi) - np.pi
@@ -51,57 +51,38 @@ def run_simulation(parameter, k1, k2, k3, N):
         return 1e8
 
 
-
-
-def run_simulation_wrapper(parameter, k1, k2, k3, N, queue, completed):
-    """
-    包装run_simulation函数，使其结果可以放入队列中。
-    :param parameter: 当前参数
-    :param k1, k2, k3, N: 控制器参数
-    :param queue: 用于存储结果的队列
-    :param completed: 共享的完成计数器
-    """
-    result = run_simulation(parameter, k1, k2, k3, N)
-    queue.put(result)
-    with completed.get_lock():  # 确保线程安全地增加计数器
-        completed.value += 1
-
 # 目标函数，用于贝叶斯优化
 @use_named_args(search_space)
 def objective(**params):
     global flag
     k1, k2, k3, N = params['k1'], params['k2'], params['k3'], params['N']
-    processes = []
-    result_queue = Queue()
-    completed = Value('i', 0)  # 初始化一个共享的整数变量作为计数器
+    jobs = [(parameter, k1, k2, k3, N) for parameter in parameter_list]
 
-    for parameter in parameter_list:
-        p = Process(target=run_simulation_wrapper, args=(parameter, k1, k2, k3, N, result_queue, completed))
-        processes.append(p)
-        p.start()
-
-    metrics = 0
-    with tqdm(total=len(parameter_list)) as pbar:
-        while completed.value < len(parameter_list):
-            if not result_queue.empty():
-                metrics += result_queue.get()
-                pbar.update(1)  # 更新进度条
-            else:
-                # 防止过快轮询导致CPU占用过高
-                time.sleep(0.01)
-
-    for p in processes:
-        p.join()
+    if _simulation_pool is None:
+        # Keep direct objective() calls usable outside main().
+        with Pool(processes=min(len(jobs), os.cpu_count() or 1),
+                  initializer=_silence_worker_stdout) as pool:
+            metrics = sum(tqdm(pool.imap(_run_simulation_job, jobs), total=len(jobs)))
+    else:
+        metrics = sum(tqdm(_simulation_pool.imap(_run_simulation_job, jobs), total=len(jobs)))
 
     print(flag)
     flag += 1
-
     return metrics
 
 
 if __name__ == '__main__':
-    # 使用贝叶斯优化进行参数搜索
-    result = gp_minimize(objective, search_space, n_calls=100, random_state=42)
+    # Reuse a bounded worker pool across all Bayesian-optimization evaluations.
+    _simulation_pool = Pool(
+        processes=min(len(parameter_list), os.cpu_count() or 1),
+        initializer=_silence_worker_stdout,
+    )
+    try:
+        result = gp_minimize(objective, search_space, n_calls=100, random_state=42)
+    finally:
+        _simulation_pool.close()
+        _simulation_pool.join()
+        _simulation_pool = None
 
     # 输出最佳参数和对应的性能指标
     print("Best parameters:", result.x)
