@@ -40,6 +40,16 @@ def _evaluate_case(job):
     return 1e8
 
 
+def _validate_cases():
+    for index, parameter in enumerate(parameter_list):
+        try:
+            values = np.asarray(parameter, dtype=float)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"case {index} must contain four finite numeric values") from exc
+        if values.shape != (4,) or not np.isfinite(values).all():
+            raise ValueError(f"case {index} must contain four finite numeric values")
+
+
 def _positive_int(value):
     try:
         parsed = int(value)
@@ -82,8 +92,14 @@ def main(argv=None):
                         help="maximum simulation worker processes")
     parser.add_argument("--output", help="optional JSON output path for the best result")
     args = parser.parse_args(argv)
+    if args.calls < 10:
+        parser.error("--calls must be at least 10 for the optimizer's default initial design")
     if not parameter_list:
         parser.error("simulation.parameter_list is empty")
+    try:
+        _validate_cases()
+    except ValueError as exc:
+        parser.error(str(exc))
 
     global _worker_pool
     _worker_pool = Pool(min(args.workers, len(parameter_list)),
