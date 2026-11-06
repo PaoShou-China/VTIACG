@@ -53,9 +53,9 @@ Folders `1/` and `2/` provide a Bayesian search entry point. Run it from the cho
 python parameter_search.py --calls 100 --seed 42 --workers 4 --output results/best.json
 ~~~
 
-`--calls` and `--workers` must be positive integers. The worker count is bounded by the number of simulation cases; results are written only when `--output` is supplied. Folder-local `simulation.py` and its parameter list remain the source of the experiment cases.
+`--workers` must be a positive integer; `--calls` must be at least 10 (the optimizer's default initial design requires ten points). The worker count is bounded by the number of simulation cases; results are written only when `--output` is supplied. Folder-local `simulation.py` and its parameter list remain the source of the experiment cases.
 
-目录 `1/` 和 `2/` 提供贝叶斯参数搜索入口，应在对应目录内执行。搜索次数与工作进程数必须为正整数；工作进程数不会超过仿真案例数。只有指定 `--output` 时才会写出 JSON 结果，仿真案例仍由当前目录的 `simulation.py` 和参数列表提供。
+目录 `1/` 和 `2/` 提供贝叶斯参数搜索入口，应在对应目录内执行。搜索次数至少为 10（贝叶斯优化默认初始设计需要十个点），工作进程数必须为正整数；工作进程数不会超过仿真案例数。只有指定 `--output` 时才会写出 JSON 结果，仿真案例仍由当前目录的 `simulation.py` 和参数列表提供。
 
 ## Reproduction notes / 复现说明
 
