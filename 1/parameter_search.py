@@ -1,89 +1,112 @@
-from skopt import gp_minimize
-from skopt.space import Real, Integer
-from skopt.utils import use_named_args
-import numpy as np
-from simulation import our_guidance_data, parameter_list
+"""Bayesian search for the virtual-target controller parameters.
+Run from this folder with python parameter_search.py.
+"""
+import argparse
+import json
 import os
 import sys
 from multiprocessing import Pool
+
+import numpy as np
+from skopt import gp_minimize
+from skopt.space import Real
+from skopt.utils import use_named_args
 from tqdm import tqdm
 
-flag = 0
-_simulation_pool = None
+from simulation import our_guidance_data, parameter_list
+
+search_space = [
+    Real(0, 0.2, name="k1"),
+    Real(0.1, 0.6, name="k2"),
+    Real(0, 0.2, name="k3"),
+    Real(1, 6, name="N"),
+]
+_worker_pool = None
+_evaluation_count = 0
 
 
 def _silence_worker_stdout():
-    """Redirect worker output once, rather than reopening /dev/null per simulation."""
+    """Suppress simulation diagnostics once per worker process."""
     sys.stdout = open(os.devnull, "w")
 
 
-def _run_simulation_job(job):
+def _evaluate_case(job):
     parameter, k1, k2, k3, N = job
-    return run_simulation(parameter, k1, k2, k3, N)
-
-
-# 定义搜索空间
-search_space = [
-    Real(0, 0.2, name='k1'),
-    Real(0.1, 0.6, name='k2'),
-    Real(0, 0.2, name='k3'),
-    Real(1, 6, name='N')
-]
-
-
-def run_simulation(parameter, k1, k2, k3, N):
-    """
-    运行模拟并返回结果
-    :param parameter: 参数列表
-    :param k1, k2, k3, N: 控制器参数
-    :return: 当前仿真目标值
-    """
     data = our_guidance_data(parameter, k1, k2, k3, N)
-    miss_distance = (data['x'][-1] ** 2 + data['y'][-1] ** 2) ** 0.5
-    e_theta_f = (data['e_theta'][-1] + np.pi) % (2 * np.pi) - np.pi
-    e_lambda_f = (data['e_lambda'][-1] + np.pi) % (2 * np.pi) - np.pi
-    final_a = abs(data['a'][-1])
-    total_a = data['total_a']
-
-    if miss_distance < 12 and e_theta_f < 0.017:
-        return total_a
-    else:
-        return 1e8
+    miss_distance = float(np.hypot(data["x"][-1], data["y"][-1]))
+    e_theta = float((data["e_theta"][-1] + np.pi) % (2 * np.pi) - np.pi)
+    if miss_distance < 12 and e_theta < 0.017:
+        return float(data["total_a"])
+    return 1e8
 
 
-# 目标函数，用于贝叶斯优化
+def _positive_int(value):
+    try:
+        parsed = int(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("must be an integer") from exc
+    if parsed <= 0:
+        raise argparse.ArgumentTypeError("must be greater than zero")
+    return parsed
+
+
 @use_named_args(search_space)
 def objective(**params):
-    global flag
-    k1, k2, k3, N = params['k1'], params['k2'], params['k3'], params['N']
-    jobs = [(parameter, k1, k2, k3, N) for parameter in parameter_list]
+    """Return the summed objective across configured simulation cases."""
+    global _evaluation_count
+    jobs = [(p, params["k1"], params["k2"], params["k3"], params["N"])
+            for p in parameter_list]
+    if not jobs:
+        raise ValueError("simulation.parameter_list is empty")
 
-    if _simulation_pool is None:
-        # Keep direct objective() calls usable outside main().
-        with Pool(processes=min(len(jobs), os.cpu_count() or 1),
+    if _worker_pool is None:
+        with Pool(min(len(jobs), os.cpu_count() or 1),
                   initializer=_silence_worker_stdout) as pool:
-            metrics = sum(tqdm(pool.imap(_run_simulation_job, jobs), total=len(jobs)))
+            values = list(tqdm(pool.imap(_evaluate_case, jobs), total=len(jobs)))
     else:
-        metrics = sum(tqdm(_simulation_pool.imap(_run_simulation_job, jobs), total=len(jobs)))
+        values = list(tqdm(_worker_pool.imap(_evaluate_case, jobs), total=len(jobs)))
+    _evaluation_count += 1
+    score = sum(values)
+    print(f"objective evaluation {_evaluation_count}: {score:.6g}")
+    return score
 
-    print(flag)
-    flag += 1
-    return metrics
 
+def main(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--calls", type=_positive_int, default=100,
+                        help="number of Bayesian optimization evaluations")
+    parser.add_argument("--seed", type=int, default=42,
+                        help="optimizer random seed")
+    parser.add_argument("--workers", type=_positive_int,
+                        default=min(len(parameter_list), os.cpu_count() or 1),
+                        help="maximum simulation worker processes")
+    parser.add_argument("--output", help="optional JSON output path for the best result")
+    args = parser.parse_args(argv)
+    if not parameter_list:
+        parser.error("simulation.parameter_list is empty")
 
-if __name__ == '__main__':
-    # Reuse a bounded worker pool across all Bayesian-optimization evaluations.
-    _simulation_pool = Pool(
-        processes=min(len(parameter_list), os.cpu_count() or 1),
-        initializer=_silence_worker_stdout,
-    )
+    global _worker_pool
+    _worker_pool = Pool(min(args.workers, len(parameter_list)),
+                        initializer=_silence_worker_stdout)
     try:
-        result = gp_minimize(objective, search_space, n_calls=100, random_state=42)
+        result = gp_minimize(objective, search_space, n_calls=args.calls,
+                             random_state=args.seed)
     finally:
-        _simulation_pool.close()
-        _simulation_pool.join()
-        _simulation_pool = None
+        _worker_pool.close()
+        _worker_pool.join()
+        _worker_pool = None
 
-    # 输出最佳参数和对应的性能指标
-    print("Best parameters:", result.x)
-    print("Best performance metric:", result.fun)
+    report = {"parameters": dict(zip([d.name for d in search_space], result.x)),
+              "objective": float(result.fun), "calls": args.calls, "seed": args.seed}
+    print(json.dumps(report, ensure_ascii=False, indent=2))
+    if args.output:
+        output_path = os.path.abspath(args.output)
+        os.makedirs(os.path.dirname(output_path), exist_ok=True)
+        with open(output_path, "w", encoding="utf-8") as output_file:
+            json.dump(report, output_file, ensure_ascii=False, indent=2)
+            output_file.write("\n")
+    return result
+
+
+if __name__ == "__main__":
+    main()
