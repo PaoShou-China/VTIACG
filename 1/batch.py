@@ -27,8 +27,7 @@ def run_simulation(parameter, law):
     :param law: 制导法则编号
     :return: 包含参数和结果的字典
     """
-    with suppress_stdout():  # 禁用print输出
-        data = guidance_data(parameter, law)
+    data = guidance_data(parameter, law)
 
     miss_distance = (data['x'][-1] ** 2 + data['y'][-1] ** 2) ** 0.5
     e_theta_f = (data['e_theta'][-1] + np.pi) % (2 * np.pi) - np.pi
@@ -62,9 +61,10 @@ def process_law(parameters, law, output_file):
     :param output_file: 输出文件名
     """
     results = []
-    for parameter in tqdm(parameters, desc=f"Law {law} Progress", file=sys.stderr):  # 使用stderr显示进度条
-        result = run_simulation(parameter, law)
-        results.append(result)
+    with suppress_stdout():
+        for parameter in tqdm(parameters, desc=f"Law {law} Progress", file=sys.stderr):  # 使用stderr显示进度条
+            result = run_simulation(parameter, law)
+            results.append(result)
 
     # 将结果保存到指定文件
     df = pd.DataFrame(results)
