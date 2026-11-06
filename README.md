@@ -1,44 +1,54 @@
 # VTIACG
 
-This repository contains Python simulation and plotting scripts organized in numbered directories. The original numbering is preserved because the directories share similarly named files and the intended conceptual labels are not encoded in the code.
+**VTIACG** is a set of Python scripts for two-dimensional missile and virtual-target guidance simulations, parameter studies, comparisons, and plots. The numbered folders preserve the existing experiment organization.
 
-## Repository map
+[Project homepage](https://paoshou-china.github.io/VTIACG/) · [Browse source](https://github.com/PaoShou-China/VTIACG)
 
-| Directory | Contents visible in the repository |
+![Stylized 2D guidance simulation geometry](assets/hero.svg)
+
+## Project overview / 项目概览
+
+The repository contains separate script collections rather than one installable package or unified runner. The simulation code defines missile and virtual-target models; additional scripts run batches or parameter searches and produce comparisons and plots.
+
+本仓库按编号目录保存若干独立的仿真脚本，并非统一安装包或单一运行器。仿真代码包含导弹和虚拟目标模型；其他脚本用于批量运行、参数搜索、结果比较和绘图。
+
+## Repository map / 目录结构
+
+| Path | Contents |
 | --- | --- |
-| `0/` | Standalone missile / virtual-target simulation and trajectory plotting in `main.py`. |
-| `1/` | Simulation, batch execution, parameter search, comparison, and plotting scripts. |
-| `2/` | Simulation, batch execution, parameter and seed/state search, comparison, and plotting scripts. |
-| `3/` | Simulation, comparison, and plotting scripts. |
+| 0/ | main.py: standalone missile/virtual-target simulation and plotting |
+| 1/ | Simulation, batch, parameter search, comparison, plotting |
+| 2/ | Simulation, batch, parameter/seed/state search, comparison, plotting |
+| 3/ | Simulation, comparison, plotting |
 
-The numbered folders are separate script collections. Their files with the same name are not necessarily interchangeable. Run a script from its own directory unless the script itself specifies otherwise.
+Run scripts from their own directory. Files with the same name in different numbered folders are separate experiment variants.
 
-## Requirements
+## Requirements / 环境依赖
 
-The inspected scripts use Python, NumPy, and Matplotlib. Some later experiment scripts may require additional packages; install any package named by a script's imports if it is missing.
+The inspected scripts use Python, NumPy, and Matplotlib. Some experiment scripts may require additional libraries; check their imports before running.
 
-A basic environment can be prepared with:
-
-```bash
+~~~bash
 python -m venv .venv
-source .venv/bin/activate       # Windows PowerShell: .venv\Scripts\Activate.ps1
+source .venv/bin/activate       # Windows PowerShell: .venv\\Scripts\\Activate.ps1
 python -m pip install --upgrade pip
 python -m pip install numpy matplotlib
-```
+~~~
 
-## Running scripts
+## Quick start / 快速开始
 
-For example:
+Run the standalone example from folder 0:
 
-```bash
+~~~bash
 cd 0
 python main.py
-```
+~~~
 
-For a script in another folder, change into that folder and invoke its filename, such as `python simulation.py` or `python batch.py`. Inspect the script's `if __name__ == "__main__"` block before running: several scripts launch simulations, parameter searches, or plots directly and may take longer than a single demonstration.
+For another experiment, enter its numbered folder and run the desired script, for example python simulation.py or python batch.py. Inspect its main block first: batch or parameter-search scripts may run longer than a single simulation. Plot windows require a graphical environment.
 
-Most parameters are currently defined in the scripts. Review the source before changing them. Plot windows may require a graphical desktop; configure a non-interactive Matplotlib backend when running headlessly.
+## Reproduction notes / 复现说明
 
-## Reproducibility notes
+- Record the folder, script, parameters, random seed, and package versions with each result.
+- Some scripts seed NumPy at module scope; others may use separate or no seed handling.
+- There is no shared experiment configuration or single runner at present; use each script's current parameters.
 
-Some simulation files set NumPy's global random seed in module scope; others may use different or no seed handling. Record the script, parameters, Python/package versions, and seed alongside any result you use. This repository does not currently provide a single shared configuration or unified runner.
+复现实验时请记录目录、脚本、参数、随机种子及依赖版本。部分脚本在模块级设置 NumPy 随机种子，其他脚本可能使用不同策略。本仓库当前没有统一配置文件或总运行入口，应以所选脚本中的参数为准。
