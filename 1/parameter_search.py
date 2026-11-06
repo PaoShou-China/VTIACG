@@ -101,16 +101,30 @@ def main(argv=None):
     except ValueError as exc:
         parser.error(str(exc))
 
+    output_path = None
+    if args.output:
+        output_path = os.path.abspath(args.output)
+        if os.path.isdir(output_path):
+            parser.error("--output must name a file, not a directory")
+        os.makedirs(os.path.dirname(output_path), exist_ok=True)
+
     global _worker_pool
     _worker_pool = Pool(min(args.workers, len(parameter_list)),
                         initializer=_silence_worker_stdout)
     try:
         result = gp_minimize(objective, search_space, n_calls=args.calls,
                              random_state=args.seed)
-    finally:
-        _worker_pool.close()
-        _worker_pool.join()
+    except BaseException:
+        pool = _worker_pool
         _worker_pool = None
+        pool.terminate()
+        pool.join()
+        raise
+    else:
+        pool = _worker_pool
+        _worker_pool = None
+        pool.close()
+        pool.join()
 
     report = {"parameters": dict(zip([d.name for d in search_space], result.x)),
               "objective": float(result.fun), "calls": args.calls, "seed": args.seed}
